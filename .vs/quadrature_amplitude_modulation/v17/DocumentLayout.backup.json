@@ -1,0 +1,45 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\ambig\\source\\repos\\quadrature_amplitude_modulation\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{EF04BC0D-0339-41DF-BC98-4F0B74931CAB}|quadrature_amplitude_modulation.pyproj|C:\\Users\\ambig\\source\\repos\\quadrature_amplitude_modulation\\quadrature_amplitude_modulation.py||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{EF04BC0D-0339-41DF-BC98-4F0B74931CAB}|quadrature_amplitude_modulation.pyproj|solutionrelative:quadrature_amplitude_modulation.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 2,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{cce594b6-0c39-4442-ba28-10c64ac7e89f}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "quadrature_amplitude_modulation.py",
+              "DocumentMoniker": "C:\\Users\\ambig\\source\\repos\\quadrature_amplitude_modulation\\quadrature_amplitude_modulation.py",
+              "RelativeDocumentMoniker": "quadrature_amplitude_modulation.py",
+              "ToolTip": "C:\\Users\\ambig\\source\\repos\\quadrature_amplitude_modulation\\quadrature_amplitude_modulation.py",
+              "RelativeToolTip": "quadrature_amplitude_modulation.py",
+              "ViewState": "AgIAAFMAAAAAAAAAAAAgwGsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-02-16T19:17:03.782Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
