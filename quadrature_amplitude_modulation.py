@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import math
 import sys
 import matplotlib.pyplot as plt
+from scipy import signal
 
 INTEGER_BITS = 32
 INTEGER_SCALE = 2**INTEGER_BITS
@@ -130,17 +131,39 @@ for i in range(0, DATA_SIZE):
 
 #		print('i = ', i, 'j = ', j, 'I = ', i_mixer_output[i*32+j].real, 'Q = ', q_mixer_output[i*32+j].imag, 'I DDS = ', dds_output_i[i*32+j], 'Q DDS = ', dds_output_q[i*32+j], 'symbols Real = ', symbols_array[i][j].real, 'symbols imag = ', symbols_array[i][j].imag)
 
-transmit_time = np.arange(0, (DATA_SIZE*int(INTEGER_BITS/2))/sample_rate, 1/sample_rate)
+# Upsample the data to get 4 samples per symbol
+i_data_up = np.zeros(len(i_mixer_output) * SAMPLES_PER_SYMBOL)
+q_data_up = np.zeros(len(q_mixer_output) * SAMPLES_PER_SYMBOL)
+i_data_up[::SAMPLES_PER_SYMBOL] = i_mixer_output
+q_data_up[::SAMPLES_PER_SYMBOL] = q_mixer_output
 
-plt.plot(transmit_time, i_mixer_output, color='blue')
-plt.plot(transmit_time, q_mixer_output, color='red')
+# 2. Design an interpolation low-pass FIR filter
+# The cutoff frequency should be 1/SAMPLES_PER_SYMBOL of the original Nyquist frequency
+# We use firwin to design a linear-phase filter
+# The filter cutoff is specified as a normalized frequency (0 to 1, where 1 is Nyquist)
+# For interpolation, the cutoff should be 1/SAMPLES_PER_SYMBOL relative to the *new* Nyquist frequency
+# (which is the original Nyquist * SAMPLES_PER_SYMBOL), so we use 1/SAMPLES_PER_SYMBOL as the normalized cutoff.
+nyquist_rate_new = 0.5 # Normalized to 1
+cutoff_norm = nyquist_rate_new / SAMPLES_PER_SYMBOL
+
+# Design filter coefficients, scale the taps by L to maintain signal amplitude
+taps = signal.firwin(127, cutoff_norm, window='hamming', scale=SAMPLES_PER_SYMBOL)
+
+# 3. Apply the FIR filter to the upsampled signal
+# lfilter performs a discrete convolution with the taps
+i_data_filtered = signal.lfilter(taps, 1.0, i_data_up)
+q_data_filtered = signal.lfilter(taps, 1.0, q_data_up)
+
+transmit_time = np.arange(0, (DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(sample_rate*SAMPLES_PER_SYMBOL), (1/(sample_rate*SAMPLES_PER_SYMBOL)))
+
+plt.plot(transmit_time, i_data_filtered, color='blue')
+plt.plot(transmit_time, q_data_filtered, color='red')
 plt.xlabel("Time (s)")
 plt.ylabel("Amplitude")
 plt.title("Unfiltered Time Domain Signal")
 plt.grid(True)
 plt.savefig("signal_time_domain.jpg")
 plt.show()
-
 
 # Receive side
 
