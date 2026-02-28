@@ -12,11 +12,13 @@ INTEGER_BITS = 32
 INTEGER_SCALE = 2**INTEGER_BITS
 DATA_SIZE = 2048
 SAMPLES_PER_SYMBOL = 4
+UPSAMPLE_DATA_SIZE = SAMPLES_PER_SYMBOL*DATA_SIZE*(INTEGER_BITS/2)
 
 def prbs_generator(seed_value):
+	mask = 0xFFFFFFFF
 	# Polynomial = x^32 + x^22 + x^2 + x^1 + 1
-	lfsr_bit	= (seed_value ^ (seed_value >> 10) ^ (seed_value >> 30) ^ (seed_value >> 31)) & 1
-	lfsr_data	= (seed_value >> 1) | (lfsr_bit << 31)
+	lfsr_bit	= (seed_value ^ (seed_value >> 10) ^ (seed_value >> 30) ^ (seed_value >> 31)) & 0x1
+	lfsr_data	= ((seed_value << 1) | (lfsr_bit)) & mask
 #	print('bit = ', lfsr_bit, 'data = ', hex(lfsr_data))
 #	char = sys.stdin.read(1)
 	return lfsr_data
@@ -45,14 +47,22 @@ random_data = []
 # |---------- Transmit side ----------|
 
 for i in range(0, DATA_SIZE):
-	current_pattern = np.int32(prbs_generator(seed_value))
+	current_pattern = int(prbs_generator(seed_value))
 	seed_value = current_pattern
 	random_data.append(seed_value)
-#	print('random data = ', random_data[i])
+	print(seed_value)
 
-tx_sample_rate = 500e+6	
+print('Data length = ', len(random_data))
+
+prbs_data_file = 'prbs_data.txt'
+
+with open(prbs_data_file, 'w') as f:
+    for item in random_data:
+        f.write(f"{item}\n") # Write each item followed by a newline
+
+tx_sample_rate = 2e+9	
 tx_phase_accumulator = 0.0
-tx_frequency_sweep_time = 131.072e-6
+tx_frequency_sweep_time = (DATA_SIZE*(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL)/tx_sample_rate
 tx_frequency_sweep_sample_rate = tx_sample_rate
 tx_clocks_per_sample_time = int(tx_frequency_sweep_time*tx_frequency_sweep_sample_rate)
 tx_output_bits = 28        # this gives 1 Hz resolution
@@ -64,6 +74,8 @@ tx_default_frequency = 50e+6
 tx_sin_rom = tx_amplitude * np.sin(np.linspace(0, 2 * np.pi, tx_rom_depth, endpoint=False))
 tx_cos_rom = tx_amplitude * np.cos(np.linspace(0, 2 * np.pi, tx_rom_depth, endpoint=False))
 tx_delta_theta_default = (int(tx_default_frequency)*2**tx_output_bits)/tx_frequency_sweep_sample_rate
+
+print('Sin length = ', len(tx_sin_rom), 'Cos length = ', len(tx_cos_rom))
 
 # Creat the oversized register that will hold extra bits to maintain high resolution
 tx_accumulator_bits = tx_output_bits*2
@@ -86,7 +98,7 @@ for i in range(0, int(tx_clocks_per_sample_time)):
 	tx_dds_output_i.append(tx_sin_rom[tx_rom_index])
 	tx_dds_output_q.append(tx_cos_rom[tx_rom_index])
 
-print('Finished DDS data')
+print('DDS out I = ', len(tx_dds_output_i), 'DDS out Q = ', len(tx_dds_output_q))
 
 # Plot the I and Q data
 dds_output_time = np.arange(0, tx_frequency_sweep_time, 1/tx_sample_rate)
@@ -189,11 +201,12 @@ plt.savefig("TX filter output.jpg")
 plt.show()
 
 transmitted_signal = tx_reduced_i + tx_reduced_q
+print('Transmitted signal = ', len(transmitted_signal))
 
 # |---------- Receive side ----------|
-rx_sample_rate = 500e+6	
+rx_sample_rate = 2e+9	
 rx_phase_accumulator = 0.0
-rx_frequency_sweep_time = 131.072e-6
+rx_frequency_sweep_time = (DATA_SIZE*(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL)/rx_sample_rate
 rx_frequency_sweep_sample_rate = rx_sample_rate
 rx_clocks_per_sample_time = int(rx_frequency_sweep_time*rx_frequency_sweep_sample_rate)
 rx_output_bits = 28        # this gives 1 Hz resolution
@@ -247,7 +260,9 @@ mixed_q = []	# rx_dds_output_q * transmitted_signal
 mixed_i = [x * y for x, y in zip(rx_dds_output_i, transmitted_signal)]
 mixed_q = [x * y for x, y in zip(rx_dds_output_q, transmitted_signal)]
 
-transmit_time = np.arange(0, (DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(rx_sample_rate*SAMPLES_PER_SYMBOL), (1/(rx_sample_rate*SAMPLES_PER_SYMBOL)))
+transmit_time = np.arange(0, (DATA_SIZE*2*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(rx_sample_rate*SAMPLES_PER_SYMBOL), (1/(rx_sample_rate*SAMPLES_PER_SYMBOL)))
+
+print('Mixed I length', len(mixed_i), 'Mixed Q length', len(mixed_q), 'Transmit time = ', len(transmit_time))
 
 plt.plot(transmit_time, mixed_i, color='blue')
 plt.plot(transmit_time, mixed_q, color='red')
@@ -259,10 +274,10 @@ plt.savefig("down_converted.jpg")
 plt.show()
 
 # Filter the data
-RX_N = 127         # Filter length (taps)
-rx_alpha = 0.35    # Roll-off factor
-rx_Ts = 500.0e-12  # Symbol duration
-rx_Fs = 1/rx_Ts		# Sampling rate (8 samples per symbol)
+RX_N = 127			# Filter length (taps)
+rx_alpha = 0.35		# Roll-off factor
+rx_Fs = 2e+9		# Sampling rate (4 samples per symbol)
+rx_Ts = 1/rx_Fs		# Symbol duration
 
 # Generate filter coefficients and time vector
 t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
@@ -289,5 +304,93 @@ plt.grid(True)
 plt.savefig("rx_srrc_output.jpg")
 plt.show()
 
+print('I reduced length', len(rx_reduced_i), 'Q reduced length = ', len(rx_reduced_q))
 
+# Run the data through an FFT
+rx_data_sum = rx_reduced_i + rx_reduced_q
+rx_fft = np.fft.fft(rx_data_sum)
 
+print('RX data sum = ', len(rx_data_sum))
+
+xf = np.fft.fftfreq(len(rx_fft), rx_Ts)
+
+# Shift zero frequency to the center for plotting
+xf = np.fft.fftshift(xf)
+yplot = np.fft.fftshift(rx_fft)
+
+print('Length of xf = ', len(xf), 'Length of FFT = ', len(yplot))
+
+# Plot the magnitude spectrum
+plt.plot(xf, np.abs(yplot))
+plt.grid()
+plt.title("Complex FFT Magnitude Spectrum")
+plt.xlabel("Frequency (Hz)")
+plt.ylabel("Magnitude")
+plt.show()
+
+aaf_i = signal.decimate(rx_reduced_i, SAMPLES_PER_SYMBOL)
+aaf_q = signal.decimate(rx_reduced_q, SAMPLES_PER_SYMBOL)
+
+aaf_time_i = np.arange(0, (len(aaf_i))/rx_Fs, 1/rx_Fs)
+aaf_time_q = np.arange(0, (len(aaf_q))/rx_Fs, 1/rx_Fs)
+
+plt.plot(aaf_time_i, aaf_i, color='blue')
+plt.plot(aaf_time_q, aaf_q, color='red')
+plt.xlabel("Time (s)")
+plt.ylabel("Amplitude")
+plt.title("Output of Anti-aliasing filter")
+plt.grid(True)
+plt.savefig("aafilter_output.jpg")
+plt.show()
+
+complex_waveform = aaf_i + aaf_q
+magnitude_array = np.abs(complex_waveform)
+
+phase_array = []
+
+for i in range(0, len(aaf_i)):
+	phase_array.append(math.atan2(aaf_q[i], aaf_i[i]))
+
+rx_binary_data = []
+
+# Loop through the complex waveform to obtain one of four locations
+for i in range(0, len(complex_waveform)):
+	if ((phase_array[i] >= 0) and (phase_array[i] < math.pi/2)):		# Quadrant I
+		rx_binary_data.append(0x3)
+	elif ((phase_array[i] >= math.pi/2) and (phase_array[i] < math.pi)):# Quadrant II
+		rx_binary_data.append(0x1)
+	elif (abs(phase_array[i]) > math.pi/2):								# Quadrant III
+		rx_binary_data.append(0x0)
+	elif (abs(phase_array[i]) <= math.pi/2):							# Quadrant IV
+		rx_binary_data.append(0x2)
+
+phase_array_file = 'phase_array.txt'
+
+with open(phase_array_file, 'w') as f:
+    for item in phase_array:
+        f.write(f"{item}\n") # Write each item followed by a newline
+
+binary_data_file = 'binary_data_array.txt'
+
+with open(binary_data_file, 'w') as f:
+    for item in rx_binary_data:
+        f.write(f"{item}\n") # Write each item followed by a newline
+
+decoded_data = []
+
+# Put the 2 bit values together to form the 32 bit words of the original signal
+for i in range(0, DATA_SIZE):
+	decoder_register = 0;
+	for j in range(0, int(INTEGER_BITS/2)):
+		decoder_register = decoder_register | ((rx_binary_data[i*int(INTEGER_BITS/2)+j]) & 0x3)
+		decoder_register = decoder_register << 2
+		print(decoder_register)
+
+	decoded_data.append(decoder_register)
+#	print('i = ', i, 'data = ', decoder_register)
+
+decoded_data_file = 'decoded_data.txt'
+
+with open(decoded_data_file, 'w') as f:
+	for item in decoded_data:
+		f.write(f"{item}\n")
