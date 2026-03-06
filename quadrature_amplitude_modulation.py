@@ -93,7 +93,7 @@ tx_clocks_per_sample_time = DATA_SIZE*(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL
 tx_output_bits = 28        # this gives 1 Hz resolution
 tx_rom_depth = 2**tx_output_bits
 tx_amplitude = 2**(tx_output_bits - 1) - 1 # For signed output
-tx_default_frequency = 50e+6
+tx_default_frequency = 500e+6
 
 # Create sine and cosine ROMs that are 2^28 in size
 tx_sin_rom = tx_amplitude * np.sin(np.linspace(0, 2 * np.pi, tx_rom_depth, endpoint=False))
@@ -212,35 +212,35 @@ nyquist_rate_new = 0.5 # Normalized to 1
 cutoff_norm = nyquist_rate_new / SAMPLES_PER_SYMBOL
 
 # Filter the data
-TX_N = 127         # Filter length (taps)
-tx_alpha = 0.35    # Roll-off factor
-tx_Ts = 500.0e-12  # Symbol duration
-tx_Fs = 1/tx_Ts		# Sampling rate (4 samples per symbol)
-fc = (1/SAMPLES_PER_SYMBOL)*tx_sample_rate
+# TX_N = 127         # Filter length (taps)
+# tx_alpha = 0.35    # Roll-off factor
+# tx_Ts = 500.0e-12  # Symbol duration
+# tx_Fs = 1/tx_Ts		# Sampling rate (4 samples per symbol)
+# fc = (1/SAMPLES_PER_SYMBOL)*tx_sample_rate
 
-# Generate filter coefficients and time vector
-t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
+# # Generate filter coefficients and time vector
+# t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
 
-n = np.arange(len(tx_srrc_taps))
-h_complex = tx_srrc_taps * np.exp(1j * 2 * np.pi * fc * n/tx_Ts)
+# n = np.arange(len(tx_srrc_taps))
+# h_complex = tx_srrc_taps * np.exp(1j * 2 * np.pi * fc * n/tx_Ts)
 
-srrc_coefficient_file = 'srrc_coefficients.txt'
+# srrc_coefficient_file = 'srrc_coefficients.txt'
 
-with open(srrc_coefficient_file, 'w') as f:
-	for item in h_complex:
-		f.write(f"{item}\n")
+# with open(srrc_coefficient_file, 'w') as f:
+# 	for item in h_complex:
+# 		f.write(f"{item}\n")
 
-symbol_data_sum = symbol_data_up	#_i + symbol_data_up_q
-symbol_data_filtered = np.convolve(symbol_data_sum, h_complex, mode='full')
+# symbol_data_sum = symbol_data_up	#_i + symbol_data_up_q
+# symbol_data_filtered = np.convolve(symbol_data_sum, h_complex, mode='full')
 
 # Remove the group delay data
 tx_reduced = []
 
-for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL+TX_N-1):
-	tx_reduced.append(symbol_data_filtered[i])
+#for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL+TX_N-1):
+#	tx_reduced.append(symbol_data_up[i])
 
-x_coords_reduced = [c.real for c in tx_reduced]
-y_coords_reduced = [c.imag for c in tx_reduced]
+x_coords_reduced = [c.real for c in symbol_data_up]
+y_coords_reduced = [c.imag for c in symbol_data_up]
 
 plt.figure(figsize=(6, 6))
 plt.scatter(x_coords_reduced, y_coords_reduced, color='red', marker='o')
@@ -257,7 +257,7 @@ iq_time_domain_plot((DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL)/tx_sample
 reduced_filtered_file = 'reduced_filtered.txt'
 
 with open(reduced_filtered_file, 'w') as f:
-	for item in tx_reduced:
+	for item in symbol_data_up:
 		f.write(f"{item}\n")
 
 # Mix the I and Q data with the DDS data
@@ -266,7 +266,7 @@ mixer_output = []
 # Loop through the 65536 random complex values
 for i in range(0, SAMPLES_PER_SYMBOL*DATA_SIZE*int(INTEGER_BITS/2)):
 	# The original 32 bit data gets converted to 16 pairs
-	mixer_output.append(tx_reduced[i] * tx_dds_output[i])
+	mixer_output.append(symbol_data_up[i] * tx_dds_output[i])
 
 transmitted_signal = mixer_output
 print('Transmitted signal = ', len(transmitted_signal))
@@ -285,6 +285,11 @@ plt.axhline(0, color='black',linewidth=0.5)
 plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
+x_coords_transmitter = [c.real for c in mixer_output]
+y_coords_transmitter = [c.imag for c in mixer_output]
+
+iq_time_domain_plot((DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL)/tx_sample_rate, tx_sample_rate, 'Transmitted Signal', x_coords_transmitter, y_coords_transmitter)
+
 # |---------- Receive side ----------|
 rx_sample_rate = 2e+9	
 rx_phase_accumulator = 0.0
@@ -294,7 +299,7 @@ rx_clocks_per_sample_time = int(rx_frequency_sweep_time*rx_frequency_sweep_sampl
 rx_output_bits = 28        # this gives 1 Hz resolution
 rx_rom_depth = 2**rx_output_bits
 rx_amplitude = 2**(rx_output_bits - 1) - 1 # For signed output
-rx_default_frequency = 50e+6
+rx_default_frequency = 500e+6
 
 # Create sine and cosine ROMs that are 2^28 in size
 rx_sin_rom = rx_amplitude * np.sin(np.linspace(0, 2 * np.pi, rx_rom_depth, endpoint=False))
@@ -359,23 +364,23 @@ plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
 # Filter the data
-RX_N = 127			# Filter length (taps)
-rx_alpha = 0.35		# Roll-off factor
-rx_Fs = 2e+9		# Sampling rate (4 samples per symbol)
-rx_Ts = 1/rx_Fs		# Symbol duration
+# RX_N = 127			# Filter length (taps)
+# rx_alpha = 0.35		# Roll-off factor
+# rx_Fs = 2e+9		# Sampling rate (4 samples per symbol)
+# rx_Ts = 1/rx_Fs		# Symbol duration
 
-# Generate filter coefficients and time vector
-t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
+# # Generate filter coefficients and time vector
+# t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
 
-filtered_signal = np.convolve(rx_mixed, rx_srrc_taps, mode='full')
+# filtered_signal = np.convolve(rx_mixed, rx_srrc_taps, mode='full')
 
-rx_srrc_time = np.arange(0, (DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(rx_sample_rate*SAMPLES_PER_SYMBOL), (1/(rx_sample_rate*SAMPLES_PER_SYMBOL)))
+# rx_srrc_time = np.arange(0, (DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(rx_sample_rate*SAMPLES_PER_SYMBOL), (1/(rx_sample_rate*SAMPLES_PER_SYMBOL)))
 
-# Remove the group delay from the data
-rx_reduced = []
+# # Remove the group delay from the data
+# rx_reduced = []
 
-for i in range(RX_N-1, DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2)+RX_N-1):
-	rx_reduced.append(filtered_signal[i])
+# for i in range(RX_N-1, DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2)+RX_N-1):
+# 	rx_reduced.append(filtered_signal[i])
 
 rx_x_coords_reduced = [c.real for c in rx_mixed]
 rx_y_coords_reduced = [c.imag for c in rx_mixed]
@@ -390,9 +395,9 @@ plt.axhline(0, color='black',linewidth=0.5)
 plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
-print('Reduced length', len(rx_reduced))
+print('Reduced length', len(rx_mixed))
 
-rx_data_sum = rx_reduced	# + rx_reduced_q
+rx_data_sum = rx_mixed	# + rx_reduced_q
 
 rx_data_sum_real = [c.real for c in rx_data_sum]
 rx_data_sum_imag = [c.imag for c in rx_data_sum]
@@ -462,9 +467,10 @@ decoded_data = []
 for i in range(0, DATA_SIZE):
 	decoder_register = 0;
 	for j in range(0, int(INTEGER_BITS/2)):
-		decoder_register = decoder_register | (((rx_binary_data[i*int(INTEGER_BITS/2)+j]) & 0x3) << INTEGER_BITS-2)
+		decoder_register = decoder_register | (((rx_binary_data[i*int(INTEGER_BITS/2)+j]) & 0x3) << INTEGER_BITS)
 		decoder_register = decoder_register >> 2
-#		print(decoder_register)
+#		print(hex(decoder_register))
+#		char = sys.stdin.read(1)
 
 	decoded_data.append(decoder_register)
 #	print('i = ', i, 'data = ', decoder_register)
@@ -474,3 +480,7 @@ decoded_data_file = 'decoded_data.txt'
 with open(decoded_data_file, 'w') as f:
 	for item in decoded_data:
 		f.write(f"{hex(item)}\n")
+
+for i in range(0, DATA_SIZE):
+	if (decoded_data[i] != random_data[i]):
+		print('Error i = ', i, 'decoded data = ', decoded_data[i], 'PRBS data = ', random_data[i])
