@@ -39,6 +39,30 @@ def qam_modulation_manual(bits):
 #	print('symbols = ', symbols)
 	return symbols
 
+def print_data_to_file(input_data, data_file):
+	with open(data_file, 'w') as f:
+		for item in input_data:
+			f.write(f"{item}\n") # Write each item followed by a newline
+
+def iq_time_domain_plot(signal_time, sample_rate, plot_title:str, i_input, q_input):
+	signal_output_time = np.arange(0, signal_time, 1/sample_rate)
+	plt.plot(signal_output_time, i_input, color='blue')
+	plt.plot(signal_output_time, q_input, color='red')
+	plt.xlabel("Time (s)")
+	plt.ylabel("Amplitude")
+	plt.title(plot_title)
+	plt.grid(True)
+	plt.show()
+
+def time_domain_plot(signal_time, sample_rate, plot_title:str, signal_input):
+	signal_output_time = np.arange(0, signal_time, 1/sample_rate)
+	plt.plot(signal_output_time, signal_input, color='blue')
+	plt.xlabel("Time (s)")
+	plt.ylabel("Amplitude")
+	plt.title(plot_title)
+	plt.grid(True)
+	plt.show()
+
 # PRBS data generator
 seed_value = 0xFFFFFFFF
 
@@ -50,7 +74,7 @@ for i in range(0, DATA_SIZE):
 	current_pattern = int(prbs_generator(seed_value))
 	seed_value = current_pattern
 	random_data.append(seed_value)
-	print(seed_value)
+#	print(seed_value)
 
 print('Data length = ', len(random_data))
 
@@ -58,13 +82,14 @@ prbs_data_file = 'prbs_data.txt'
 
 with open(prbs_data_file, 'w') as f:
     for item in random_data:
-        f.write(f"{item}\n") # Write each item followed by a newline
+        f.write(f"{hex(item)}\n") # Write each item followed by a newline
 
+# Generate the local oscillator by implementing a DDS with I and Q outputs
 tx_sample_rate = 2e+9	
 tx_phase_accumulator = 0.0
 tx_frequency_sweep_time = (DATA_SIZE*(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL)/tx_sample_rate
 tx_frequency_sweep_sample_rate = tx_sample_rate
-tx_clocks_per_sample_time = int(tx_frequency_sweep_time*tx_frequency_sweep_sample_rate)
+tx_clocks_per_sample_time = DATA_SIZE*(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL
 tx_output_bits = 28        # this gives 1 Hz resolution
 tx_rom_depth = 2**tx_output_bits
 tx_amplitude = 2**(tx_output_bits - 1) - 1 # For signed output
@@ -100,6 +125,8 @@ for i in range(0, int(tx_clocks_per_sample_time)):
 
 print('DDS out I = ', len(tx_dds_output_i), 'DDS out Q = ', len(tx_dds_output_q))
 
+tx_dds_output = [complex(i, q) for i, q in zip(tx_dds_output_i, tx_dds_output_q)]
+
 # Plot the I and Q data
 dds_output_time = np.arange(0, tx_frequency_sweep_time, 1/tx_sample_rate)
 
@@ -112,11 +139,18 @@ plt.grid(True)
 plt.savefig("signal_time_domain.jpg")
 plt.show()
 
-rows = tx_clocks_per_sample_time
+dds_data_file = 'dds_output_data.txt'
+
+with open(dds_data_file, 'w') as f:
+    for item in tx_dds_output:
+        f.write(f"{item}\n") # Write each item followed by a newline
+
+rows = int(tx_clocks_per_sample_time)
 cols = INTEGER_BITS
 default_value = 0
 binary_data = [[default_value for _ in range(cols)] for _ in range(rows)]
 symbols_array = []	#[[default_value for _ in range(int(cols/2))] for _ in range(rows)]
+symbols_array_complex = []
 
 # Loop through the random data (size = 2048)
 for i in range(0, DATA_SIZE):
@@ -130,78 +164,126 @@ for i in range(0, DATA_SIZE):
 	# Convert the 32 bit value to complex numbers (1+1*j, -1+1*j, -1-1*j, 1-1*j)
 	# This reduces the array to 16 complex numbers
 	symbols_array.append(qam_modulation_manual(binary_data[i]))
+	symbol_register = [complex(s) for s in symbols_array[i]]
+	symbols_array_complex.append(symbol_register)
 
 print('Finished symbols array')
 
-# Mix the I and Q data with the DDS data
-i_mixer_output = []
-q_mixer_output = []
+symbols_array_file = 'symbols_array.txt'
 
-# Loop through the 65536 random complex values
+with open(symbols_array_file, 'w') as f:
+	for item in symbols_array_complex:
+		f.write(f"{item}\n")
+
+symbol_data_flat = []
+
+# Flatten the two-dimensional array
 for i in range(0, DATA_SIZE):
-	# The original 32 bit data gets converted to 16 pairs
 	for j in range(0, int(INTEGER_BITS/2)):
-		i_mixer_output.append(symbols_array[i][j].real * tx_dds_output_i[i*32+j])
-		q_mixer_output.append(symbols_array[i][j].imag * tx_dds_output_q[i*32+j])
+		symbol_data_flat.append(symbols_array_complex[i][j])
 
-#		print('i = ', i, 'j = ', j, 'I = ', i_mixer_output[i*32+j].real, 'Q = ', q_mixer_output[i*32+j].imag, 'I DDS = ', dds_output_i[i*32+j], 'Q DDS = ', dds_output_q[i*32+j], 'symbols Real = ', symbols_array[i][j].real, 'symbols imag = ', symbols_array[i][j].imag)
+symbol_data_up = np.zeros(len(symbol_data_flat) * SAMPLES_PER_SYMBOL, dtype=complex)
+symbol_data_up[::SAMPLES_PER_SYMBOL] = symbol_data_flat
 
-# Upsample the data to get 4 samples per symbol
-i_data_up = np.zeros(len(i_mixer_output) * SAMPLES_PER_SYMBOL)
-q_data_up = np.zeros(len(q_mixer_output) * SAMPLES_PER_SYMBOL)
-i_data_up[::SAMPLES_PER_SYMBOL] = i_mixer_output
-q_data_up[::SAMPLES_PER_SYMBOL] = q_mixer_output
+print('Finished interpolation')
 
-# 2. Design an interpolation low-pass FIR filter
-# The cutoff frequency should be 1/SAMPLES_PER_SYMBOL of the original Nyquist frequency
-# We use firwin to design a linear-phase filter
-# The filter cutoff is specified as a normalized frequency (0 to 1, where 1 is Nyquist)
-# For interpolation, the cutoff should be 1/SAMPLES_PER_SYMBOL relative to the *new* Nyquist frequency
-# (which is the original Nyquist * SAMPLES_PER_SYMBOL), so we use 1/SAMPLES_PER_SYMBOL as the normalized cutoff.
+interpolated_data_file = 'interpolated_data.txt'
+
+with open(interpolated_data_file, 'w') as f:
+	for item in symbol_data_up:
+		f.write(f"{item}\n")
+
+x_coords = [c.real for c in symbol_data_up]
+y_coords = [c.imag for c in symbol_data_up]
+
+plt.figure(figsize=(6, 6))
+plt.scatter(x_coords, y_coords, color='red', marker='o')
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Argand Diagram of Complex Numbers")
+plt.grid(True)
+plt.axhline(0, color='black',linewidth=0.5)
+plt.axvline(0, color='black',linewidth=0.5)
+plt.show()
+
+print('Finished interpolated signals plot')
+
 nyquist_rate_new = 0.5 # Normalized to 1
 cutoff_norm = nyquist_rate_new / SAMPLES_PER_SYMBOL
-
-# Design filter coefficients, scale the taps by L to maintain signal amplitude
-#taps = signal.firwin(127, cutoff_norm, window='hamming', scale=SAMPLES_PER_SYMBOL)
-
-# 3. Apply the FIR filter to the upsampled signal
-# lfilter performs a discrete convolution with the taps
-#i_data_filtered = signal.lfilter(taps, 1.0, i_data_up)
-#q_data_filtered = signal.lfilter(taps, 1.0, q_data_up)
 
 # Filter the data
 TX_N = 127         # Filter length (taps)
 tx_alpha = 0.35    # Roll-off factor
 tx_Ts = 500.0e-12  # Symbol duration
-tx_Fs = 1/tx_Ts		# Sampling rate (8 samples per symbol)
+tx_Fs = 1/tx_Ts		# Sampling rate (4 samples per symbol)
+fc = (1/SAMPLES_PER_SYMBOL)*tx_sample_rate
 
 # Generate filter coefficients and time vector
 t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
 
-i_data_filtered = np.convolve(i_data_up, tx_srrc_taps, mode='full')
-q_data_filtered = np.convolve(q_data_up, tx_srrc_taps, mode='full')
+n = np.arange(len(tx_srrc_taps))
+h_complex = tx_srrc_taps * np.exp(1j * 2 * np.pi * fc * n/tx_Ts)
+
+srrc_coefficient_file = 'srrc_coefficients.txt'
+
+with open(srrc_coefficient_file, 'w') as f:
+	for item in h_complex:
+		f.write(f"{item}\n")
+
+symbol_data_sum = symbol_data_up	#_i + symbol_data_up_q
+symbol_data_filtered = np.convolve(symbol_data_sum, h_complex, mode='full')
 
 # Remove the group delay data
-tx_reduced_i = []
-tx_reduced_q = []
+tx_reduced = []
 
-for i in range(TX_N-1, DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2)+TX_N-1):
-	tx_reduced_i.append(i_data_filtered[i])
-	tx_reduced_q.append(q_data_filtered[i])
+for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL+TX_N-1):
+	tx_reduced.append(symbol_data_filtered[i])
 
-transmit_time = np.arange(0, (DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(tx_sample_rate*SAMPLES_PER_SYMBOL), (1/(tx_sample_rate*SAMPLES_PER_SYMBOL)))
+x_coords_reduced = [c.real for c in tx_reduced]
+y_coords_reduced = [c.imag for c in tx_reduced]
 
-plt.plot(transmit_time, tx_reduced_i, color='blue')
-plt.plot(transmit_time, tx_reduced_q, color='red')
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude")
-plt.title("Complex output signal")
+plt.figure(figsize=(6, 6))
+plt.scatter(x_coords_reduced, y_coords_reduced, color='red', marker='o')
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Interpolated and reduced data")
 plt.grid(True)
-plt.savefig("TX filter output.jpg")
+plt.axhline(0, color='black',linewidth=0.5)
+plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
-transmitted_signal = tx_reduced_i + tx_reduced_q
+iq_time_domain_plot((DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL)/tx_sample_rate, tx_sample_rate, 'Interpolated and reduced data', x_coords_reduced, y_coords_reduced)
+
+reduced_filtered_file = 'reduced_filtered.txt'
+
+with open(reduced_filtered_file, 'w') as f:
+	for item in tx_reduced:
+		f.write(f"{item}\n")
+
+# Mix the I and Q data with the DDS data
+mixer_output = []
+
+# Loop through the 65536 random complex values
+for i in range(0, SAMPLES_PER_SYMBOL*DATA_SIZE*int(INTEGER_BITS/2)):
+	# The original 32 bit data gets converted to 16 pairs
+	mixer_output.append(tx_reduced[i] * tx_dds_output[i])
+
+transmitted_signal = mixer_output
 print('Transmitted signal = ', len(transmitted_signal))
+
+# Plot the I and Q data
+x_coords_mixer = [c.real for c in mixer_output]
+y_coords_mixer = [c.imag for c in mixer_output]
+
+plt.figure(figsize=(6, 6))
+plt.scatter(x_coords_mixer, y_coords_mixer, color='red', marker='o')
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Transmitted signal")
+plt.grid(True)
+plt.axhline(0, color='black',linewidth=0.5)
+plt.axvline(0, color='black',linewidth=0.5)
+plt.show()
 
 # |---------- Receive side ----------|
 rx_sample_rate = 2e+9	
@@ -234,43 +316,46 @@ print('ftw = ', rx_ftw)
 # Create the I and Q data arrays that have a size of 65536 each
 for i in range(0, int(rx_clocks_per_sample_time*2)):
 	rx_phase_accumulator = (rx_phase_accumulator + rx_ftw) % float(2**rx_accumulator_bits)
-#	print('PA = ', phase_accumulator, 'ftw = ', ftw, 'scale = ', 2**accumulator_bits)
-
 	rx_rom_index = int(rx_phase_accumulator) >> (rx_accumulator_bits - int(np.log2(rx_rom_depth)))
 	rx_dds_output_i.append(rx_sin_rom[rx_rom_index])
 	rx_dds_output_q.append(rx_cos_rom[rx_rom_index])
-#	print('PA = ', rx_phase_accumulator, 'index = ', rx_rom_index, 'I = ', rx_sin_rom[rx_rom_index], 'Q = ', (rx_cos_rom[rx_rom_index]))
 
-tx_file_path_i = 'dds_output_i.txt'
+rx_dds_output = [complex(i, q) for i, q in zip(rx_dds_output_i, rx_dds_output_q)]
 
-with open(tx_file_path_i, 'w') as f:
-    for item in rx_dds_output_i:
-        f.write(f"{item}\n") # Write each item followed by a newline
+rx_dds_output_time = np.arange(0, 2*rx_frequency_sweep_time, 1/rx_sample_rate)
 
-tx_file_path_q = 'dds_output_q.txt'
+plt.plot(rx_dds_output_time, rx_dds_output_i, color='blue')
+plt.plot(rx_dds_output_time, rx_dds_output_q, color='red')
+plt.xlabel("Time (s)")
+plt.ylabel("Amplitude")
+plt.title("Receiver DDS output signal")
+plt.grid(True)
+plt.savefig("rx_dds_output.jpg")
+plt.show()
 
-with open(tx_file_path_q, 'w') as f:
-    for item in rx_dds_output_q:
+tx_file_path = 'rx_dds_output.txt'
+
+with open(tx_file_path, 'w') as f:
+    for item in rx_dds_output:
         f.write(f"{item}\n") # Write each item followed by a newline
 
 # Mix the RF signal with the local oscillator
-mixed_i = []	# rx_dds_output_i * transmitted_signal
-mixed_q = []	# rx_dds_output_q * transmitted_signal
+rx_mixed = [x * y for x, y in zip(rx_dds_output, transmitted_signal)]
 
-mixed_i = [x * y for x, y in zip(rx_dds_output_i, transmitted_signal)]
-mixed_q = [x * y for x, y in zip(rx_dds_output_q, transmitted_signal)]
+print_data_to_file(rx_mixed, 'rx_mixed.txt')
+print('Mixed length', len(rx_mixed))
 
-transmit_time = np.arange(0, (DATA_SIZE*2*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(rx_sample_rate*SAMPLES_PER_SYMBOL), (1/(rx_sample_rate*SAMPLES_PER_SYMBOL)))
+x_coords_mixed = [c.real for c in rx_mixed]
+y_coords_mixed = [c.imag for c in rx_mixed]
 
-print('Mixed I length', len(mixed_i), 'Mixed Q length', len(mixed_q), 'Transmit time = ', len(transmit_time))
-
-plt.plot(transmit_time, mixed_i, color='blue')
-plt.plot(transmit_time, mixed_q, color='red')
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude")
-plt.title("Down converted signal")
+plt.figure(figsize=(6, 6))
+plt.scatter(x_coords_mixed, y_coords_mixed, color='red', marker='o')
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Receiver Mixer Output")
 plt.grid(True)
-plt.savefig("down_converted.jpg")
+plt.axhline(0, color='black',linewidth=0.5)
+plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
 # Filter the data
@@ -282,74 +367,69 @@ rx_Ts = 1/rx_Fs		# Symbol duration
 # Generate filter coefficients and time vector
 t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
 
-filtered_signal_i = np.convolve(mixed_i, rx_srrc_taps, mode='full')
-filtered_signal_q = np.convolve(mixed_q, rx_srrc_taps, mode='full')
+filtered_signal = np.convolve(rx_mixed, rx_srrc_taps, mode='full')
 
 rx_srrc_time = np.arange(0, (DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(rx_sample_rate*SAMPLES_PER_SYMBOL), (1/(rx_sample_rate*SAMPLES_PER_SYMBOL)))
 
 # Remove the group delay from the data
-rx_reduced_i = []
-rx_reduced_q = []
+rx_reduced = []
 
 for i in range(RX_N-1, DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2)+RX_N-1):
-	rx_reduced_i.append(filtered_signal_i[i])
-	rx_reduced_q.append(filtered_signal_q[i])
+	rx_reduced.append(filtered_signal[i])
 
-plt.plot(rx_srrc_time, rx_reduced_i, color='blue')
-plt.plot(rx_srrc_time, rx_reduced_q, color='red')
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude")
-plt.title("Output of SRRC")
+rx_x_coords_reduced = [c.real for c in rx_mixed]
+rx_y_coords_reduced = [c.imag for c in rx_mixed]
+
+plt.figure(figsize=(6, 6))
+plt.scatter(rx_x_coords_reduced, rx_y_coords_reduced, color='red', marker='o')
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Reduced Receiver Mixer Output")
 plt.grid(True)
-plt.savefig("rx_srrc_output.jpg")
+plt.axhline(0, color='black',linewidth=0.5)
+plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
-print('I reduced length', len(rx_reduced_i), 'Q reduced length = ', len(rx_reduced_q))
+print('Reduced length', len(rx_reduced))
 
-# Run the data through an FFT
-rx_data_sum = rx_reduced_i + rx_reduced_q
-rx_fft = np.fft.fft(rx_data_sum)
+rx_data_sum = rx_reduced	# + rx_reduced_q
+
+rx_data_sum_real = [c.real for c in rx_data_sum]
+rx_data_sum_imag = [c.imag for c in rx_data_sum]
+
+print_data_to_file(rx_data_sum, 'rx_data_sum.txt')
+iq_time_domain_plot((DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL)/rx_sample_rate, rx_sample_rate, 'Before anti-aliasing filter', rx_data_sum_real, rx_data_sum_imag)
 
 print('RX data sum = ', len(rx_data_sum))
 
-xf = np.fft.fftfreq(len(rx_fft), rx_Ts)
+# Decimate to reduce to one sample per symbol
+aaf = signal.decimate(rx_data_sum, SAMPLES_PER_SYMBOL, ftype='fir')
+print('length of AAF = ', len(aaf))
+print_data_to_file(aaf, 'anti_aliasing_filter.txt')
+iq_time_domain_plot((DATA_SIZE*int(INTEGER_BITS/2))/rx_sample_rate, rx_sample_rate, 'After anti-aliasing filter', aaf.real, aaf.imag)
+print('Finished anti-aliasing plot')
 
-# Shift zero frequency to the center for plotting
-xf = np.fft.fftshift(xf)
-yplot = np.fft.fftshift(rx_fft)
+x_coords_aaf = [c.real for c in aaf]
+y_coords_aaf = [c.imag for c in aaf]
 
-print('Length of xf = ', len(xf), 'Length of FFT = ', len(yplot))
-
-# Plot the magnitude spectrum
-plt.plot(xf, np.abs(yplot))
-plt.grid()
-plt.title("Complex FFT Magnitude Spectrum")
-plt.xlabel("Frequency (Hz)")
-plt.ylabel("Magnitude")
-plt.show()
-
-aaf_i = signal.decimate(rx_reduced_i, SAMPLES_PER_SYMBOL)
-aaf_q = signal.decimate(rx_reduced_q, SAMPLES_PER_SYMBOL)
-
-aaf_time_i = np.arange(0, (len(aaf_i))/rx_Fs, 1/rx_Fs)
-aaf_time_q = np.arange(0, (len(aaf_q))/rx_Fs, 1/rx_Fs)
-
-plt.plot(aaf_time_i, aaf_i, color='blue')
-plt.plot(aaf_time_q, aaf_q, color='red')
-plt.xlabel("Time (s)")
-plt.ylabel("Amplitude")
-plt.title("Output of Anti-aliasing filter")
+plt.figure(figsize=(6, 6))
+plt.scatter(x_coords_aaf, y_coords_aaf, color='red', marker='o')
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Anti-aliasing Filter Output")
 plt.grid(True)
-plt.savefig("aafilter_output.jpg")
+plt.axhline(0, color='black',linewidth=0.5)
+plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
-complex_waveform = aaf_i + aaf_q
+complex_waveform = aaf
 magnitude_array = np.abs(complex_waveform)
 
 phase_array = []
 
-for i in range(0, len(aaf_i)):
-	phase_array.append(math.atan2(aaf_q[i], aaf_i[i]))
+# Calculate the phase of each complex value
+for i in range(0, len(aaf)):
+	phase_array.append(math.atan2(aaf[i].real, aaf[i].imag))
 
 rx_binary_data = []
 
@@ -382,9 +462,9 @@ decoded_data = []
 for i in range(0, DATA_SIZE):
 	decoder_register = 0;
 	for j in range(0, int(INTEGER_BITS/2)):
-		decoder_register = decoder_register | ((rx_binary_data[i*int(INTEGER_BITS/2)+j]) & 0x3)
-		decoder_register = decoder_register << 2
-		print(decoder_register)
+		decoder_register = decoder_register | (((rx_binary_data[i*int(INTEGER_BITS/2)+j]) & 0x3) << INTEGER_BITS-2)
+		decoder_register = decoder_register >> 2
+#		print(decoder_register)
 
 	decoded_data.append(decoder_register)
 #	print('i = ', i, 'data = ', decoder_register)
@@ -393,4 +473,4 @@ decoded_data_file = 'decoded_data.txt'
 
 with open(decoded_data_file, 'w') as f:
 	for item in decoded_data:
-		f.write(f"{item}\n")
+		f.write(f"{hex(item)}\n")
