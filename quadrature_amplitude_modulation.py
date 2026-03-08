@@ -212,35 +212,35 @@ nyquist_rate_new = 0.5 # Normalized to 1
 cutoff_norm = nyquist_rate_new / SAMPLES_PER_SYMBOL
 
 # Filter the data
-# TX_N = 127         # Filter length (taps)
-# tx_alpha = 0.35    # Roll-off factor
-# tx_Ts = 500.0e-12  # Symbol duration
-# tx_Fs = 1/tx_Ts		# Sampling rate (4 samples per symbol)
-# fc = (1/SAMPLES_PER_SYMBOL)*tx_sample_rate
+TX_N = 127										# Filter length (taps)
+tx_alpha = 0.35									# Roll-off factor
+tx_Ts = SAMPLES_PER_SYMBOL/tx_sample_rate		# Symbol duration
+tx_Fs = tx_sample_rate							# Sampling rate (4 samples per symbol)
+fc = tx_sample_rate
 
-# # Generate filter coefficients and time vector
-# t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
+# Generate filter coefficients and time vector
+t, tx_srrc_taps = rrcosfilter(TX_N, tx_alpha, tx_Ts, tx_Fs)
 
-# n = np.arange(len(tx_srrc_taps))
-# h_complex = tx_srrc_taps * np.exp(1j * 2 * np.pi * fc * n/tx_Ts)
+n = np.arange(len(tx_srrc_taps))
+h_complex = np.array(tx_srrc_taps, dtype=np.complex128)
 
-# srrc_coefficient_file = 'srrc_coefficients.txt'
+srrc_coefficient_file = 'srrc_coefficients.txt'
 
-# with open(srrc_coefficient_file, 'w') as f:
-# 	for item in h_complex:
-# 		f.write(f"{item}\n")
+with open(srrc_coefficient_file, 'w') as f:
+	for item in h_complex:
+		f.write(f"{item}\n")
 
-# symbol_data_sum = symbol_data_up	#_i + symbol_data_up_q
-# symbol_data_filtered = np.convolve(symbol_data_sum, h_complex, mode='full')
+symbol_data_sum = symbol_data_up	#_i + symbol_data_up_q
+symbol_data_filtered = np.convolve(symbol_data_sum, h_complex, mode='full')
 
 # Remove the group delay data
 tx_reduced = []
 
-#for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL+TX_N-1):
-#	tx_reduced.append(symbol_data_up[i])
+for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL+TX_N-1):
+	tx_reduced.append(symbol_data_filtered[i])
 
-x_coords_reduced = [c.real for c in symbol_data_up]
-y_coords_reduced = [c.imag for c in symbol_data_up]
+x_coords_reduced = [c.real for c in tx_reduced]
+y_coords_reduced = [c.imag for c in tx_reduced]
 
 plt.figure(figsize=(6, 6))
 plt.scatter(x_coords_reduced, y_coords_reduced, color='red', marker='o')
@@ -364,26 +364,26 @@ plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
 # Filter the data
-# RX_N = 127			# Filter length (taps)
-# rx_alpha = 0.35		# Roll-off factor
-# rx_Fs = 2e+9		# Sampling rate (4 samples per symbol)
-# rx_Ts = 1/rx_Fs		# Symbol duration
+RX_N = 127					# Filter length (taps)
+rx_alpha = 0.35				# Roll-off factor
+rx_Fs = rx_sample_rate		# Sampling rate (4 samples per symbol)
+rx_Ts = SAMPLES_PER_SYMBOL/rx_sample_rate		# Symbol duration
 
 # # Generate filter coefficients and time vector
-# t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
+t, rx_srrc_taps = rrcosfilter(RX_N, rx_alpha, rx_Ts, rx_Fs)
+n = np.arange(len(rx_srrc_taps))
+rx_h_complex = np.array(rx_srrc_taps, dtype=np.complex128)
 
-# filtered_signal = np.convolve(rx_mixed, rx_srrc_taps, mode='full')
+rx_filtered_signal = np.convolve(rx_mixed, rx_h_complex, mode='full')
 
-# rx_srrc_time = np.arange(0, (DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2))/(rx_sample_rate*SAMPLES_PER_SYMBOL), (1/(rx_sample_rate*SAMPLES_PER_SYMBOL)))
+# Remove the group delay data
+rx_reduced = []
 
-# # Remove the group delay from the data
-# rx_reduced = []
+for i in range(TX_N-1, DATA_SIZE*int(INTEGER_BITS/2)*SAMPLES_PER_SYMBOL+TX_N-1):
+	rx_reduced.append(rx_filtered_signal[i])
 
-# for i in range(RX_N-1, DATA_SIZE*SAMPLES_PER_SYMBOL*int(INTEGER_BITS/2)+RX_N-1):
-# 	rx_reduced.append(filtered_signal[i])
-
-rx_x_coords_reduced = [c.real for c in rx_mixed]
-rx_y_coords_reduced = [c.imag for c in rx_mixed]
+rx_x_coords_reduced = [c.real for c in rx_reduced]
+rx_y_coords_reduced = [c.imag for c in rx_reduced]
 
 plt.figure(figsize=(6, 6))
 plt.scatter(rx_x_coords_reduced, rx_y_coords_reduced, color='red', marker='o')
@@ -395,9 +395,9 @@ plt.axhline(0, color='black',linewidth=0.5)
 plt.axvline(0, color='black',linewidth=0.5)
 plt.show()
 
-print('Reduced length', len(rx_mixed))
+print('Reduced length', len(rx_reduced))
 
-rx_data_sum = rx_mixed	# + rx_reduced_q
+rx_data_sum = rx_reduced
 
 rx_data_sum_real = [c.real for c in rx_data_sum]
 rx_data_sum_imag = [c.imag for c in rx_data_sum]
@@ -483,4 +483,5 @@ with open(decoded_data_file, 'w') as f:
 
 for i in range(0, DATA_SIZE):
 	if (decoded_data[i] != random_data[i]):
-		print('Error i = ', i, 'decoded data = ', decoded_data[i], 'PRBS data = ', random_data[i])
+		print('Error i = ', i, 'decoded data = ', hex(decoded_data[i]), 'PRBS data = ', hex(random_data[i]))
+
